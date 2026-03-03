@@ -34,26 +34,19 @@ def _register_font():
         pass
     return "Consolas"
 
-# Readable small font for file paths / labels
+
 _SMALL = "Segoe UI"
 
 
 def _spaced(text, spacing=1):
-    """Insert `spacing` spaces between each character."""
     return (" " * spacing).join(text)
 
 
 def _hs(text):
-    """Half-space: insert a thin non-breaking-ish gap using a narrow space char."""
-    return "\u2009".join(text)   # thin space between each char
+    return "\u2009".join(text) 
 
 
 class OutlineText(tk.Canvas):
-    """
-    Renders text with a colored stroke and transparent fill,
-    simulating an outline/hollow font effect.
-    bg should match the parent background exactly.
-    """
     def __init__(self, parent, text, size, stroke_color, bg,
                  stroke_width=2, letter_spacing=0, **kw):
         super().__init__(parent, bg=bg, highlightthickness=0, bd=0, **kw)
@@ -75,7 +68,6 @@ class OutlineText(tk.Canvas):
                                   else "Consolas", size=self._size, weight="bold")
         cx, cy = w // 2, h // 2
         sw = self._stroke_width
-        # draw text in stroke color at slight offsets to build outline
         for dx in range(-sw, sw+1):
             for dy in range(-sw, sw+1):
                 if dx == 0 and dy == 0:
@@ -84,7 +76,6 @@ class OutlineText(tk.Canvas):
                     self.create_text(cx+dx, cy+dy, text=self._text,
                                      font=self._font,
                                      fill=self._stroke_color)
-        # draw center in background color to hollow it out
         self.create_text(cx, cy, text=self._text,
                          font=self._font, fill=self._bg)
 
@@ -95,7 +86,6 @@ class OutlineText(tk.Canvas):
 
 
 class VerticalBar(tk.Canvas):
-    """Vertical strength gauge. Number is always white on a dark backing."""
 
     def __init__(self, parent, color, label, **kw):
         super().__init__(parent, bg=DARK, highlightthickness=0,
@@ -119,21 +109,21 @@ class VerticalBar(tk.Canvas):
         bar_w = max(28, int(w * 0.42))
         bar_h = int(h * 0.58)
         bx    = (w - bar_w) // 2
-        label_h = 30  # space reserved for label below
+        label_h = 30
         by    = (h - bar_h - label_h) // 2
 
-        # track
+
         self.create_rectangle(bx, by, bx+bar_w, by+bar_h,
                                fill="#111111", outline=BORDER, width=1)
 
-        # fill from bottom
+
         fh = int(bar_h * self._value)
         if fh > 2:
             self.create_rectangle(bx+2, by+bar_h-fh,
                                    bx+bar_w-2, by+bar_h-1,
                                    fill=self._color, outline="")
 
-        # dark pill behind the number so it always reads clearly
+
         tx = bx + bar_w // 2
         ty = by + bar_h // 2
         pad_x, pad_y = 14, 6
@@ -141,11 +131,10 @@ class VerticalBar(tk.Canvas):
         self.create_rectangle(tx - tw//2, ty - pad_y - 6,
                                tx + tw//2, ty + pad_y + 6,
                                fill="#111111", outline=BORDER, width=1)
-        # white number text
+
         self.create_text(tx, ty, text=self._txt,
                           fill="#ffffff", font=("Consolas", 13, "bold"))
 
-        # colored label below bar — IntraNet
         self.create_text(w // 2, by + bar_h + 22,
                           text=self._label.upper(),
                           fill=self._color,
@@ -171,7 +160,6 @@ class DraftApp(ctk.CTk):
         return (self._ff, size, "bold" if bold else "normal")
 
     def _s(self, text):
-        """Thin letter spacing for IntraNet font — uses Unicode thin space."""
         return _hs(text)
 
     def _build_ui(self):
@@ -338,7 +326,6 @@ class DraftApp(ctk.CTk):
         tk.Label(rec_f, text=self._s("RECOMMENDATIONS"), font=self._f(10),
                  fg=ORANGE, bg=PANEL).pack(anchor="center", pady=(8,4))
 
-        # header row — same font as data rows so widths match exactly
         col_hdr = tk.Frame(rec_f, bg=PANEL)
         col_hdr.pack(fill="x", padx=12)
         tk.Label(col_hdr, text="CHAMPION", font=(_SMALL, 9, "bold"),
@@ -349,7 +336,6 @@ class DraftApp(ctk.CTk):
                  fg=DIM, bg=PANEL, width=10, anchor="w").pack(side="left")
         tk.Frame(rec_f, bg=ORANGE, height=1).pack(fill="x", padx=12, pady=(3,4))
 
-        # scrollable container for rows
         rec_scroll_outer = tk.Frame(rec_f, bg=PANEL)
         rec_scroll_outer.pack(fill="both", expand=True, padx=12, pady=(0,10))
 
@@ -366,7 +352,14 @@ class DraftApp(ctk.CTk):
         canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # placeholder
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        canvas.bind("<Enter>", lambda e: self.bind_all("<MouseWheel>", _on_mousewheel))
+        canvas.bind("<Leave>", lambda e: self.unbind_all("<MouseWheel>"))
+
+        self._rec_canvas = canvas
+
         self._rec_placeholder = tk.Label(
             self._rec_inner,
             text="Press 'GET RECOMMENDATIONS' to see suggested picks.",
@@ -519,7 +512,6 @@ class DraftApp(ctk.CTk):
         self._red_bar.set_value( max(0, min(1, t2/100)), f"{t2:.1f}")
 
     def _show_recs(self, df):
-        # clear old rows
         for widget in self._rec_inner.winfo_children():
             widget.destroy()
 
@@ -535,7 +527,6 @@ class DraftApp(ctk.CTk):
             role     = row["Role"].upper()
             strength = f"{row['Strength']:>+.2f}"
 
-            # shrink font for long champion names
             font_size = 11 if len(champ) <= 12 else 9
 
             r = tk.Frame(self._rec_inner, bg=PANEL)
