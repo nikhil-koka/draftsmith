@@ -39,14 +39,21 @@ _SMALL = "Segoe UI"
 
 
 def _spaced(text, spacing=1):
+    """Insert `spacing` spaces between each character."""
     return (" " * spacing).join(text)
 
 
 def _hs(text):
-    return "\u2009".join(text) 
+    """Half-space: insert a thin non-breaking-ish gap using a narrow space char."""
+    return "\u2009".join(text)
 
 
 class OutlineText(tk.Canvas):
+    """
+    Renders text with a colored stroke and transparent fill,
+    simulating an outline/hollow font effect.
+    bg should match the parent background exactly.
+    """
     def __init__(self, parent, text, size, stroke_color, bg,
                  stroke_width=2, letter_spacing=0, **kw):
         super().__init__(parent, bg=bg, highlightthickness=0, bd=0, **kw)
@@ -68,6 +75,7 @@ class OutlineText(tk.Canvas):
                                   else "Consolas", size=self._size, weight="bold")
         cx, cy = w // 2, h // 2
         sw = self._stroke_width
+
         for dx in range(-sw, sw+1):
             for dy in range(-sw, sw+1):
                 if dx == 0 and dy == 0:
@@ -76,6 +84,7 @@ class OutlineText(tk.Canvas):
                     self.create_text(cx+dx, cy+dy, text=self._text,
                                      font=self._font,
                                      fill=self._stroke_color)
+
         self.create_text(cx, cy, text=self._text,
                          font=self._font, fill=self._bg)
 
@@ -86,6 +95,7 @@ class OutlineText(tk.Canvas):
 
 
 class VerticalBar(tk.Canvas):
+    """Vertical strength gauge. Number is always white on a dark backing."""
 
     def __init__(self, parent, color, label, **kw):
         super().__init__(parent, bg=DARK, highlightthickness=0,
@@ -109,13 +119,12 @@ class VerticalBar(tk.Canvas):
         bar_w = max(28, int(w * 0.42))
         bar_h = int(h * 0.58)
         bx    = (w - bar_w) // 2
-        label_h = 30
+        label_h = 30  
         by    = (h - bar_h - label_h) // 2
 
 
         self.create_rectangle(bx, by, bx+bar_w, by+bar_h,
                                fill="#111111", outline=BORDER, width=1)
-
 
         fh = int(bar_h * self._value)
         if fh > 2:
@@ -135,6 +144,7 @@ class VerticalBar(tk.Canvas):
         self.create_text(tx, ty, text=self._txt,
                           fill="#ffffff", font=("Consolas", 13, "bold"))
 
+
         self.create_text(w // 2, by + bar_h + 22,
                           text=self._label.upper(),
                           fill=self._color,
@@ -153,6 +163,7 @@ class DraftApp(ctk.CTk):
         self._draft    = None
         self._port     = None
         self._password = None
+        self._my_role  = None 
 
         self._build_ui()
 
@@ -160,6 +171,7 @@ class DraftApp(ctk.CTk):
         return (self._ff, size, "bold" if bold else "normal")
 
     def _s(self, text):
+        """Thin letter spacing for IntraNet font — uses Unicode thin space."""
         return _hs(text)
 
     def _build_ui(self):
@@ -321,10 +333,32 @@ class DraftApp(ctk.CTk):
             rl.grid(row=1, column=i+1, padx=3, pady=2, sticky="ew")
             self._red_ban_lbls.append(rl)
 
-        rec_f = tk.Frame(right, bg=PANEL)
-        rec_f.pack(fill="both", expand=True)
-        tk.Label(rec_f, text=self._s("RECOMMENDATIONS"), font=self._f(10),
-                 fg=ORANGE, bg=PANEL).pack(anchor="center", pady=(8,4))
+        bottom_f = tk.Frame(right, bg=DARK)
+        bottom_f.pack(fill="both", expand=True)
+
+        rec_f = tk.Frame(bottom_f, bg=PANEL)
+        rec_f.place(relx=0, rely=0, relwidth=0.625, relheight=1.0)
+
+        rec_top = tk.Frame(rec_f, bg=PANEL)
+        rec_top.pack(fill="x", pady=(8,4))
+        tk.Label(rec_top, text=self._s("RECOMMENDATIONS"), font=self._f(10),
+                 fg=ORANGE, bg=PANEL).pack(side="left", padx=12)
+
+
+        self._my_role_only = tk.BooleanVar(value=False)
+        self._role_toggle  = tk.Button(
+            rec_top, text="MY ROLE ONLY",
+            font=(_SMALL, 8, "bold"),
+            fg=DIM, bg=CARD,
+            activebackground=ORANGE, activeforeground=DARK,
+            relief="flat", bd=0, padx=8, pady=3,
+            cursor="hand2",
+            command=self._toggle_role_filter)
+        self._role_toggle.pack(side="right", padx=12)
+        self._my_role_lbl = tk.Label(rec_top, text="", font=(_SMALL, 8),
+                                      fg=DIM, bg=PANEL)
+        self._my_role_lbl.pack(side="right", padx=(0,4))
+
 
         col_hdr = tk.Frame(rec_f, bg=PANEL)
         col_hdr.pack(fill="x", padx=12)
@@ -335,6 +369,7 @@ class DraftApp(ctk.CTk):
         tk.Label(col_hdr, text="STRENGTH", font=(_SMALL, 9, "bold"),
                  fg=DIM, bg=PANEL, width=10, anchor="w").pack(side="left")
         tk.Frame(rec_f, bg=ORANGE, height=1).pack(fill="x", padx=12, pady=(3,4))
+
 
         rec_scroll_outer = tk.Frame(rec_f, bg=PANEL)
         rec_scroll_outer.pack(fill="both", expand=True, padx=12, pady=(0,10))
@@ -365,6 +400,47 @@ class DraftApp(ctk.CTk):
             text="Press 'GET RECOMMENDATIONS' to see suggested picks.",
             font=(_SMALL, 11), fg=DIM, bg=PANEL, anchor="w")
         self._rec_placeholder.pack(fill="x", pady=4)
+
+
+        pool_f = tk.Frame(bottom_f, bg=PANEL)
+        pool_f.place(relx=0.630, rely=0, relwidth=0.370, relheight=1.0)
+
+        pool_top = tk.Frame(pool_f, bg=PANEL)
+        pool_top.pack(fill="x", pady=(8,4))
+        tk.Label(pool_top, text=self._s("CHAMP POOL"), font=self._f(10),
+                 fg=ORANGE, bg=PANEL).pack(side="left", padx=12)
+
+        self._pool_only = tk.BooleanVar(value=False)
+        self._pool_toggle = tk.Button(
+            pool_top, text="ON",
+            font=(_SMALL, 8, "bold"),
+            fg=DIM, bg=CARD,
+            activebackground=ORANGE, activeforeground=DARK,
+            relief="flat", bd=0, padx=8, pady=3,
+            cursor="hand2",
+            command=self._toggle_pool_filter)
+        self._pool_toggle.pack(side="right", padx=12)
+
+        tk.Frame(pool_f, bg=ORANGE, height=1).pack(fill="x", padx=12, pady=(0,6))
+
+
+        tk.Label(pool_f, text="One champion per line",
+                 font=(_SMALL, 8), fg=DIM, bg=PANEL, anchor="w"
+                 ).pack(fill="x", padx=12)
+        self._pool_text = tk.Text(
+            pool_f, font=(_SMALL, 10),
+            fg=TEXT, bg=CARD,
+            insertbackground=TEXT, relief="flat",
+            bd=4, highlightthickness=0,
+            wrap="none")
+        self._pool_text.pack(fill="both", expand=True, padx=12, pady=(4,10))
+
+ 
+        self._pool_save_job = None
+        self._pool_text.bind("<<Modified>>", self._on_pool_edit)
+
+
+        self._load_pool()
 
     def _pick_card(self, parent, role, color):
         card = tk.Frame(parent, bg=CARD, height=74)
@@ -439,10 +515,22 @@ class DraftApp(ctk.CTk):
                 data           = dc.fetch_session(port, password)
                 draft          = dc.parse_session(data, port, password)
                 self._draft    = draft
+
+                # detect local player role
+                norm = {"bottom":"bot","utility":"sup","middle":"mid","jungle":"jng","top":"top"}
+                my_cell = data.get("localPlayerCellId", -1)
+                self._my_role = None
+                for player in data.get("myTeam", []):
+                    if player.get("cellId") == my_cell:
+                        self._my_role = norm.get(player.get("assignedPosition",""), None)
+                        break
+
                 self.after(0, self._refresh_draft, draft)
                 self.after(0, self._set_status, "LOBBY LOADED", GREEN)
                 self.after(0, lambda: self._analyze_btn.configure(state="normal", fg=TEXT))
                 self.after(0, lambda: self._rec_btn.configure(state="normal", fg=TEXT))
+                role_txt = f"({self._my_role.upper()})" if self._my_role else ""
+                self.after(0, lambda: self._my_role_lbl.configure(text=role_txt, fg=ORANGE))
             except Exception as e:
                 self.after(0, self._set_status, f"ERROR: {e}", "#FF4444")
                 self.after(0, lambda: messagebox.showerror("Fetch Error", str(e)))
@@ -467,6 +555,60 @@ class DraftApp(ctk.CTk):
 
         threading.Thread(target=run, daemon=True).start()
 
+    def _on_pool_edit(self, event=None):
+
+        self._pool_text.edit_modified(False)
+
+        if self._pool_save_job:
+            self.after_cancel(self._pool_save_job)
+        self._pool_save_job = self.after(1000, self._save_pool)
+
+    def _pool_file(self):
+        return os.path.join(_SCRIPT_DIR, "champ_pool.json")
+
+    def _save_pool(self):
+        import json
+        entries = [l.strip() for l in self._pool_text.get("1.0", "end").splitlines() if l.strip()]
+        try:
+            with open(self._pool_file(), "w") as f:
+                json.dump(entries, f)
+        except Exception:
+            pass
+
+    def _load_pool(self):
+        import json
+        try:
+            with open(self._pool_file()) as f:
+                entries = json.load(f)
+            self._pool_text.delete("1.0", "end")
+            self._pool_text.insert("end", "\n".join(entries))
+            self._pool_text.edit_modified(False)
+        except Exception:
+            pass
+
+    def _toggle_pool_filter(self):
+        self._pool_only.set(not self._pool_only.get())
+        if self._pool_only.get():
+            self._pool_toggle.configure(fg=DARK, bg=ORANGE)
+
+            if not self._my_role_only.get():
+                self._my_role_only.set(True)
+                self._role_toggle.configure(fg=DARK, bg=ORANGE)
+        else:
+            self._pool_toggle.configure(fg=DIM, bg=CARD)
+        if self._draft:
+            self._do_recommend()
+
+    def _toggle_role_filter(self):
+        self._my_role_only.set(not self._my_role_only.get())
+        if self._my_role_only.get():
+            self._role_toggle.configure(fg=DARK, bg=ORANGE)
+        else:
+            self._role_toggle.configure(fg=DIM, bg=CARD)
+
+        if self._draft:
+            self._do_recommend()
+
     def _do_recommend(self):
         if not self._draft:
             messagebox.showinfo("No draft", "Fetch a lobby first.")
@@ -476,7 +618,11 @@ class DraftApp(ctk.CTk):
         def run():
             try:
                 import draft_core as dc
-                df = dc.get_recommendations(self._draft)
+                role_filter = self._my_role if self._my_role_only.get() else None
+                pool_filter = None
+                if self._pool_only.get():
+                    pool_filter = [l.strip() for l in self._pool_text.get("1.0", "end").splitlines() if l.strip()]
+                df = dc.get_recommendations(self._draft, role_filter=role_filter, pool_filter=pool_filter)
                 self.after(0, self._show_recs, df)
                 self.after(0, self._set_status, "RECOMMENDATIONS READY", GREEN)
             except Exception as e:
@@ -486,32 +632,36 @@ class DraftApp(ctk.CTk):
         threading.Thread(target=run, daemon=True).start()
 
     def _refresh_draft(self, draft):
-        for role in ROLES:
-            p1 = draft["team1"]["Picks"].get(role)
-            self._blue_pick_labels[role].configure(
-                text=self._s(p1.upper()) if p1 else "—", fg=TEXT if p1 else DIM)
-            p2 = draft["team2"]["Picks"].get(role)
-            self._red_pick_labels[role].configure(
-                text=self._s(p2.upper()) if p2 else "—", fg=TEXT if p2 else DIM)
 
-        for i, lbl in enumerate(self._blue_ban_lbls):
-            b = draft["team1"]["Bans"][i] if i < len(draft["team1"]["Bans"]) else None
-            txt  = self._s(b.upper()) if b else "—"
-            size = 8 if b and len(b) > 9 else 10
-            lbl.configure(text=txt, fg="#FF6B6B" if b else DIM,
-                          font=self._f(size))
-        for i, lbl in enumerate(self._red_ban_lbls):
-            b = draft["team2"]["Bans"][i] if i < len(draft["team2"]["Bans"]) else None
-            txt  = self._s(b.upper()) if b else "—"
-            size = 8 if b and len(b) > 9 else 10
-            lbl.configure(text=txt, fg="#FF6B6B" if b else DIM,
-                          font=self._f(size))
+        blue_picks = self._blue_pick_labels
+        red_picks  = self._red_pick_labels
+        blue_bans  = self._blue_ban_lbls
+        red_bans   = self._red_ban_lbls
+
+        for tkey in ["team1", "team2"]:
+            side        = draft[tkey]["side"]
+            pick_labels = blue_picks if side == "Blue" else red_picks
+            ban_labels  = blue_bans  if side == "Blue" else red_bans
+
+            for role in ROLES:
+                p = draft[tkey]["Picks"].get(role)
+                pick_labels[role].configure(
+                    text=self._s(p.upper()) if p else "—",
+                    fg=TEXT if p else DIM)
+
+            for i, lbl in enumerate(ban_labels):
+                b    = draft[tkey]["Bans"][i] if i < len(draft[tkey]["Bans"]) else None
+                txt  = self._s(b.upper()) if b else "—"
+                size = 8 if b and len(b) > 9 else 10
+                lbl.configure(text=txt, fg="#FF6B6B" if b else DIM,
+                              font=self._f(size))
 
     def _update_strength(self, t1, t2):
         self._blue_bar.set_value(max(0, min(1, t1/100)), f"{t1:.1f}")
         self._red_bar.set_value( max(0, min(1, t2/100)), f"{t2:.1f}")
 
     def _show_recs(self, df):
+
         for widget in self._rec_inner.winfo_children():
             widget.destroy()
 
@@ -526,6 +676,7 @@ class DraftApp(ctk.CTk):
             champ    = row["Champion"]
             role     = row["Role"].upper()
             strength = f"{row['Strength']:>+.2f}"
+
 
             font_size = 11 if len(champ) <= 12 else 9
 

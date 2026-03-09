@@ -4,6 +4,8 @@ import pandas as pd
 import certifi
 import urllib3
 import numpy as np
+import re
+from difflib import SequenceMatcher
 from sklearn.model_selection import GroupShuffleSplit
 from sklearn.ensemble import RandomForestClassifier
 from scipy.optimize import linear_sum_assignment
@@ -38,6 +40,37 @@ df_model_lanes  = None
 players         = None
 _initialized    = False
 min_games       = 10
+
+
+def normalize(s):
+    """Lowercase, strip spaces and punctuation for fuzzy matching."""
+    return re.sub(r"[^a-z0-9]", "", s.lower())
+
+
+def combined_score(a, b):
+    """Blend substring match and sequence similarity."""
+    seq = SequenceMatcher(None, a, b).ratio()
+    sub = 1.0 if a in b or b in a else 0.0
+    return 0.6 * seq + 0.4 * sub
+
+
+def resolve_champ_pool(entries):
+    """
+    Convert a list of user-typed champion names to canonical champion names
+    using fuzzy matching against champion_list.
+    Returns a list of canonical names (deduped).
+    """
+    if not champion_list:
+        return []
+    resolved = []
+    for entry in entries:
+        entry = entry.strip()
+        if not entry:
+            continue
+        best = max(champion_list, key=lambda c: combined_score(normalize(entry), normalize(c)))
+        if best not in resolved:
+            resolved.append(best)
+    return resolved
 
 
 def initialize(ranked_csv: str, pro_csv: str, status_cb=None):
@@ -183,7 +216,6 @@ def initialize(ranked_csv: str, pro_csv: str, status_cb=None):
     log("✓ Ready!")
 
 
-# LCU 
 
 def read_lockfile(path: str):
     with open(path, "r") as f:
@@ -205,7 +237,6 @@ def fetch_patch(port, password):
     return float(".".join(resp.json().split(".")[:2]))
 
 
-# role inference
 
 def _build_prob_lookup():
     rc = (prob_df.groupby(["champion","position"]).size()
@@ -261,15 +292,16 @@ def assign_enemy_roles(picks_dict, your_team_id, role_counts, prob_lookup):
     return picks_dict
 
 
-# parse LCU session
 
 def parse_session(data, port, password):
-
+    """
+    Iterates ALL action groups to capture every pick and ban,
+    regardless of draft phase. Bans are attributed by actorCellId.
+    """
     norm       = {"bottom":"bot","utility":"sup","middle":"mid","jungle":"jng"}
     my_team_id = data["myTeam"][0]["team"]
     my_side    = "Blue" if my_team_id == 100 else "Red"
     opp_side   = "Red"  if my_side == "Blue" else "Blue"
-
 
     player_lookup = {}
     for team_key in ["myTeam","theirTeam"]:
@@ -337,7 +369,6 @@ def parse_session(data, port, password):
     return draft
 
 
-# model
 
 def _scale(x):
     return (x - 0.48) / (0.52 - 0.48) * 100
@@ -371,15 +402,28 @@ def evaluate_draft(draft):
     preds = forest_mod.predict_proba(convert(draft["team1"], draft["team2"]))[:, 1]
     return _scale(preds[0]), _scale(preds[1])
 
-def get_recommendations(draft, top_n=10):
+
+def adjuster(total_games, threshold=16):
+    return (1 - (0.2 * (np.exp(1) ** (-0.15 * (total_games - threshold)))))
+
+
+def get_recommendations(draft, top_n=10, role_filter=None, pool_filter=None):
     bans        = [b for b in draft["team1"]["Bans"] + draft["team2"]["Bans"] if b]
     empty_roles = [r for r in roles if draft["team1"]["Picks"][r] is None]
+    if role_filter:
+        empty_roles = [r for r in empty_roles if r == role_filter]
     if not empty_roles:
         return pd.DataFrame(columns=["Champion","Role","Strength"])
 
-    games_buffer  = (len(matches_df) ** 0.5) / 2
     diff_role_dict = {"sup": "bot", "bot": "sup"}
 
+    resolved_pool = set(resolve_champ_pool(pool_filter)) if pool_filter else None
+
+    def _candidate_pool(role):
+        base = set(matches_df[role].unique()) - set(bans)
+        if resolved_pool:
+            base = base & resolved_pool
+        return base
 
     winrates = {}
     for role in empty_roles:
@@ -387,15 +431,13 @@ def get_recommendations(draft, top_n=10):
         opp_pick = draft["team2"]["Picks"][role]
 
         if role in ["bot", "sup"]:
-            partner_role  = diff_role_dict[role]
-            partner_pick  = draft["team1"]["Picks"][partner_role]
+            partner_role = diff_role_dict[role]
+            partner_pick = draft["team1"]["Picks"][partner_role]
+            duo_opp      = opp_pick
+            duo_partner  = partner_pick
 
-            duo_opp       = opp_pick
-            duo_partner   = partner_pick
-
-            for champ in set(matches_df[role].unique()) - set(bans):
+            for champ in _candidate_pool(role):
                 if duo_opp and duo_partner:
-
                     counter_win   = len(matches_df[(matches_df[role] == champ) &
                                                     (matches_df[f"opp_{role}"] == duo_opp) &
                                                     (matches_df["result"] == 1)])
@@ -406,41 +448,42 @@ def get_recommendations(draft, top_n=10):
                                                     (matches_df["result"] == 1)])
                     synergy_total = len(matches_df[(matches_df[role] == champ) &
                                                     (matches_df[partner_role] == duo_partner)])
-                    counter_wr = (counter_win + games_buffer) / (counter_total + games_buffer * 2)
-                    synergy_wr = (synergy_win + games_buffer) / (synergy_total + games_buffer * 2)
-                    winrates[f"{role}_winrates"][champ] = (counter_wr + synergy_wr) / 2
+                    if counter_total > 0 and synergy_total > 0:
+                        counter_wr = (counter_win / counter_total) * adjuster(counter_total)
+                        synergy_wr = (synergy_win / synergy_total) * adjuster(synergy_total)
+                        winrates[f"{role}_winrates"][champ] = (counter_wr + synergy_wr) / 2
 
                 elif duo_opp or duo_partner:
-
                     has_synergy  = bool(duo_partner)
                     filled       = partner_role if has_synergy else f"opp_{role}"
                     filled_champ = duo_partner  if has_synergy else duo_opp
-                    win_num   = len(matches_df[(matches_df[role] == champ) &
-                                               (matches_df[filled] == filled_champ) &
-                                               (matches_df["result"] == 1)])
+                    win_num     = len(matches_df[(matches_df[role] == champ) &
+                                                  (matches_df[filled] == filled_champ) &
+                                                  (matches_df["result"] == 1)])
                     total_games = len(matches_df[(matches_df[role] == champ) &
                                                   (matches_df[filled] == filled_champ)])
-                    winrates[f"{role}_winrates"][champ] = (
-                        (win_num + games_buffer) / (total_games + games_buffer * 2))
+                    if total_games > 0:
+                        winrates[f"{role}_winrates"][champ] = (
+                            (win_num / (total_games + 1)) * adjuster(total_games))
 
                 else:
-
                     total = players[(players["position"] == role) &
                                     (players["is_blind"] == True)]["champion"].value_counts()
                     if champ in total:
                         winrates[f"{role}_winrates"][champ] = total[champ]
 
         elif opp_pick is None:
-
             total = (players[(players["position"] == role) &
                               (players["is_blind"] == True)]["champion"].value_counts())
-            for champ in set(players[(players["position"] == role) &
-                                      (players["is_blind"] == True)]["champion"].unique()) - set(bans):
+            blind_pool = set(players[(players["position"] == role) &
+                                      (players["is_blind"] == True)]["champion"].unique()) - set(bans)
+            if resolved_pool:
+                blind_pool = blind_pool & resolved_pool
+            for champ in blind_pool:
                 winrates[f"{role}_winrates"][champ] = total.get(champ, 0)
 
         else:
-
-            for champ in set(matches_df[role].unique()) - set(bans):
+            for champ in _candidate_pool(role):
                 total_games = len(matches_df[(matches_df[role] == champ) &
                                               (matches_df[f"opp_{role}"] == opp_pick)])
                 if total_games > 0:
@@ -448,8 +491,7 @@ def get_recommendations(draft, top_n=10):
                                               (matches_df[f"opp_{role}"] == opp_pick) &
                                               (matches_df["result"] == 1)])
                     winrates[f"{role}_winrates"][champ] = (
-                        (win_num + games_buffer) / (total_games + games_buffer * 2))
-
+                        (win_num / total_games) * adjuster(total_games))
 
     results = []
     for role in empty_roles:
