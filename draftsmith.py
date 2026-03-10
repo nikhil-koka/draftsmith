@@ -3,6 +3,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox
 import threading
 import os
+import sys
 
 ctk.set_appearance_mode("dark")
 ctk.set_default_color_theme("blue")
@@ -34,7 +35,7 @@ def _register_font():
         pass
     return "Consolas"
 
-
+# Readable small font for file paths / labels
 _SMALL = "Segoe UI"
 
 
@@ -45,7 +46,7 @@ def _spaced(text, spacing=1):
 
 def _hs(text):
     """Half-space: insert a thin non-breaking-ish gap using a narrow space char."""
-    return "\u2009".join(text)
+    return "\u2009".join(text)   # thin space between each char
 
 
 class OutlineText(tk.Canvas):
@@ -75,7 +76,7 @@ class OutlineText(tk.Canvas):
                                   else "Consolas", size=self._size, weight="bold")
         cx, cy = w // 2, h // 2
         sw = self._stroke_width
-
+        # draw text in stroke color at slight offsets to build outline
         for dx in range(-sw, sw+1):
             for dy in range(-sw, sw+1):
                 if dx == 0 and dy == 0:
@@ -84,7 +85,7 @@ class OutlineText(tk.Canvas):
                     self.create_text(cx+dx, cy+dy, text=self._text,
                                      font=self._font,
                                      fill=self._stroke_color)
-
+        # draw center in background color to hollow it out
         self.create_text(cx, cy, text=self._text,
                          font=self._font, fill=self._bg)
 
@@ -119,20 +120,21 @@ class VerticalBar(tk.Canvas):
         bar_w = max(28, int(w * 0.42))
         bar_h = int(h * 0.58)
         bx    = (w - bar_w) // 2
-        label_h = 30  
+        label_h = 30  # space reserved for label below
         by    = (h - bar_h - label_h) // 2
 
-
+        # track
         self.create_rectangle(bx, by, bx+bar_w, by+bar_h,
                                fill="#111111", outline=BORDER, width=1)
 
+        # fill from bottom
         fh = int(bar_h * self._value)
         if fh > 2:
             self.create_rectangle(bx+2, by+bar_h-fh,
                                    bx+bar_w-2, by+bar_h-1,
                                    fill=self._color, outline="")
 
-
+        # dark pill behind the number so it always reads clearly
         tx = bx + bar_w // 2
         ty = by + bar_h // 2
         pad_x, pad_y = 14, 6
@@ -140,11 +142,11 @@ class VerticalBar(tk.Canvas):
         self.create_rectangle(tx - tw//2, ty - pad_y - 6,
                                tx + tw//2, ty + pad_y + 6,
                                fill="#111111", outline=BORDER, width=1)
-
+        # white number text
         self.create_text(tx, ty, text=self._txt,
                           fill="#ffffff", font=("Consolas", 13, "bold"))
 
-
+        # colored label below bar — IntraNet
         self.create_text(w // 2, by + bar_h + 22,
                           text=self._label.upper(),
                           fill=self._color,
@@ -163,7 +165,7 @@ class DraftApp(ctk.CTk):
         self._draft    = None
         self._port     = None
         self._password = None
-        self._my_role  = None 
+        self._my_role  = None   # detected from LCU localPlayerCellId
 
         self._build_ui()
 
@@ -173,6 +175,18 @@ class DraftApp(ctk.CTk):
     def _s(self, text):
         """Thin letter spacing for IntraNet font — uses Unicode thin space."""
         return _hs(text)
+
+    def _outlined_btn(self, parent, text, cmd, bg_parent=None):
+        """Button with a permanent orange rectangle outline via a Frame wrapper."""
+        bg_parent = bg_parent or PANEL
+        border = tk.Frame(parent, bg=ORANGE, padx=1, pady=1)
+        btn = tk.Button(border, text=text, font=(_SMALL, 9, "bold"),
+                        fg=ORANGE, bg=bg_parent,
+                        activebackground=ORANGE, activeforeground=DARK,
+                        relief="flat", bd=0, padx=12, pady=5,
+                        cursor="hand2", command=cmd)
+        btn.pack()
+        return border, btn
 
     def _build_ui(self):
         bar = tk.Frame(self, bg="#111111", height=80)
@@ -195,6 +209,12 @@ class DraftApp(ctk.CTk):
         self._status_lbl = tk.Label(bar, text="NOT INITIALIZED",
                                      font=self._f(10), fg=DIM, bg="#111111")
         self._status_lbl.pack(side="right", padx=20)
+
+        # compact update button in title bar
+        upd_f = tk.Frame(bar, bg="#111111")
+        upd_f.pack(side="right", padx=(0,12))
+        border, self._update_btn = self._outlined_btn(upd_f, "UPDATE", self._do_update_app, bg_parent="#111111")
+        border.pack(side="right")
 
         tk.Frame(self, bg=ORANGE, height=2).pack(fill="x")
 
@@ -344,22 +364,16 @@ class DraftApp(ctk.CTk):
         tk.Label(rec_top, text=self._s("RECOMMENDATIONS"), font=self._f(10),
                  fg=ORANGE, bg=PANEL).pack(side="left", padx=12)
 
-
+        # toggle: all roles vs my role only
         self._my_role_only = tk.BooleanVar(value=False)
-        self._role_toggle  = tk.Button(
-            rec_top, text="MY ROLE ONLY",
-            font=(_SMALL, 8, "bold"),
-            fg=DIM, bg=CARD,
-            activebackground=ORANGE, activeforeground=DARK,
-            relief="flat", bd=0, padx=8, pady=3,
-            cursor="hand2",
-            command=self._toggle_role_filter)
-        self._role_toggle.pack(side="right", padx=12)
+        role_border, self._role_toggle = self._outlined_btn(
+            rec_top, "MY ROLE ONLY", self._toggle_role_filter, bg_parent=PANEL)
+        role_border.pack(side="right", padx=12)
         self._my_role_lbl = tk.Label(rec_top, text="", font=(_SMALL, 8),
                                       fg=DIM, bg=PANEL)
         self._my_role_lbl.pack(side="right", padx=(0,4))
 
-
+        # header row — same font as data rows so widths match exactly
         col_hdr = tk.Frame(rec_f, bg=PANEL)
         col_hdr.pack(fill="x", padx=12)
         tk.Label(col_hdr, text="CHAMPION", font=(_SMALL, 9, "bold"),
@@ -370,7 +384,7 @@ class DraftApp(ctk.CTk):
                  fg=DIM, bg=PANEL, width=10, anchor="w").pack(side="left")
         tk.Frame(rec_f, bg=ORANGE, height=1).pack(fill="x", padx=12, pady=(3,4))
 
-
+        # scrollable container for rows
         rec_scroll_outer = tk.Frame(rec_f, bg=PANEL)
         rec_scroll_outer.pack(fill="both", expand=True, padx=12, pady=(0,10))
 
@@ -390,18 +404,20 @@ class DraftApp(ctk.CTk):
         def _on_mousewheel(event):
             canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
+        # bind to the top-level window only while mouse is over the canvas
         canvas.bind("<Enter>", lambda e: self.bind_all("<MouseWheel>", _on_mousewheel))
         canvas.bind("<Leave>", lambda e: self.unbind_all("<MouseWheel>"))
 
         self._rec_canvas = canvas
 
+        # placeholder
         self._rec_placeholder = tk.Label(
             self._rec_inner,
             text="Press 'GET RECOMMENDATIONS' to see suggested picks.",
             font=(_SMALL, 11), fg=DIM, bg=PANEL, anchor="w")
         self._rec_placeholder.pack(fill="x", pady=4)
 
-
+        # ── CHAMP POOL PANEL ──────────────────────────────────────────────────
         pool_f = tk.Frame(bottom_f, bg=PANEL)
         pool_f.place(relx=0.630, rely=0, relwidth=0.370, relheight=1.0)
 
@@ -410,20 +426,15 @@ class DraftApp(ctk.CTk):
         tk.Label(pool_top, text=self._s("CHAMP POOL"), font=self._f(10),
                  fg=ORANGE, bg=PANEL).pack(side="left", padx=12)
 
+        # toggle: filter recs to pool only
         self._pool_only = tk.BooleanVar(value=False)
-        self._pool_toggle = tk.Button(
-            pool_top, text="ON",
-            font=(_SMALL, 8, "bold"),
-            fg=DIM, bg=CARD,
-            activebackground=ORANGE, activeforeground=DARK,
-            relief="flat", bd=0, padx=8, pady=3,
-            cursor="hand2",
-            command=self._toggle_pool_filter)
-        self._pool_toggle.pack(side="right", padx=12)
+        pool_border, self._pool_toggle = self._outlined_btn(
+            pool_top, "ON", self._toggle_pool_filter, bg_parent=PANEL)
+        pool_border.pack(side="right", padx=12)
 
         tk.Frame(pool_f, bg=ORANGE, height=1).pack(fill="x", padx=12, pady=(0,6))
 
-
+        # text entry for champs
         tk.Label(pool_f, text="One champion per line",
                  font=(_SMALL, 8), fg=DIM, bg=PANEL, anchor="w"
                  ).pack(fill="x", padx=12)
@@ -435,11 +446,11 @@ class DraftApp(ctk.CTk):
             wrap="none")
         self._pool_text.pack(fill="both", expand=True, padx=12, pady=(4,10))
 
- 
+        # auto-save on edit with 1s debounce
         self._pool_save_job = None
         self._pool_text.bind("<<Modified>>", self._on_pool_edit)
 
-
+        # load saved pool on startup
         self._load_pool()
 
     def _pick_card(self, parent, role, color):
@@ -469,6 +480,77 @@ class DraftApp(ctk.CTk):
 
     def _set_status(self, msg, color=TEXT):
         self._status_lbl.configure(text=msg, fg=color)
+
+    def _do_update_app(self):
+        self._set_status("UPDATING...", ORANGE)
+
+        def run():
+            try:
+                import urllib.request, zipfile, shutil, subprocess
+
+                repo_zip_url = "https://github.com/nikhil-koka/draftsmith/archive/refs/heads/main.zip"
+                exe_dir      = os.path.dirname(sys.executable) if getattr(sys, "frozen", False) \
+                               else os.path.dirname(os.path.abspath(__file__))
+                zip_path     = os.path.join(exe_dir, "repo_update.zip")
+                extract_path = os.path.join(exe_dir, "repo_update_tmp")
+
+                # download full repo zip
+                req = urllib.request.Request(repo_zip_url, headers={"User-Agent": "Mozilla/5.0"})
+                with urllib.request.urlopen(req) as resp, open(zip_path, "wb") as out:
+                    out.write(resp.read())
+
+                # extract
+                with zipfile.ZipFile(zip_path, "r") as z:
+                    z.extractall(extract_path)
+                os.remove(zip_path)
+
+                # repo extracts into "draftsmith-main/"
+                inner = os.path.join(extract_path, "draftsmith-main")
+
+                # always update data files and draft_core
+                for f in ["ranked_dataset.csv",
+                          "2026_LoL_esports_match_data_from_OraclesElixir.csv",
+                          "draft_core.py"]:
+                    src = os.path.join(inner, f)
+                    dst = os.path.join(exe_dir, f)
+                    if os.path.exists(src):
+                        shutil.copy2(src, dst)
+
+                # update app itself
+                if getattr(sys, "frozen", False):
+                    src_exe = os.path.join(inner, "draftsmith.exe")
+                    if os.path.exists(src_exe):
+                        tmp_path = sys.executable + ".new"
+                        bat_path = os.path.join(exe_dir, "update.bat")
+                        shutil.copy2(src_exe, tmp_path)
+                        with open(bat_path, "w") as f:
+                            f.write(
+                                f'@echo off\n'
+                                f'timeout /t 2 /nobreak\n'
+                                f'move /y "{tmp_path}" "{sys.executable}"\n'
+                                f'start "" "{sys.executable}"\n'
+                                f'del "%~f0"\n')
+                        shutil.rmtree(extract_path, ignore_errors=True)
+                        subprocess.Popen(bat_path, shell=True)
+                        self.after(0, self.destroy)
+                        return
+                else:
+                    src_py = os.path.join(inner, "draftsmith.py")
+                    dst_py = os.path.abspath(__file__)
+                    if os.path.exists(src_py):
+                        shutil.copy2(src_py, dst_py)
+                    shutil.rmtree(extract_path, ignore_errors=True)
+                    subprocess.Popen([sys.executable, dst_py])
+                    self.after(0, self.destroy)
+                    return
+
+                shutil.rmtree(extract_path, ignore_errors=True)
+                self.after(0, self._set_status, "UPDATED — RE-INITIALIZE", GREEN)
+
+            except Exception as e:
+                self.after(0, self._set_status, f"UPDATE FAILED: {e}", "#FF4444")
+
+        threading.Thread(target=run, daemon=True).start()
 
     def _do_init(self):
         ranked = self._ranked_var.get()
@@ -556,9 +638,9 @@ class DraftApp(ctk.CTk):
         threading.Thread(target=run, daemon=True).start()
 
     def _on_pool_edit(self, event=None):
-
+        # reset the Modified flag so we get future events
         self._pool_text.edit_modified(False)
-
+        # cancel any pending save and reschedule 1s later
         if self._pool_save_job:
             self.after_cancel(self._pool_save_job)
         self._pool_save_job = self.after(1000, self._save_pool)
@@ -590,12 +672,11 @@ class DraftApp(ctk.CTk):
         self._pool_only.set(not self._pool_only.get())
         if self._pool_only.get():
             self._pool_toggle.configure(fg=DARK, bg=ORANGE)
-
             if not self._my_role_only.get():
                 self._my_role_only.set(True)
                 self._role_toggle.configure(fg=DARK, bg=ORANGE)
         else:
-            self._pool_toggle.configure(fg=DIM, bg=CARD)
+            self._pool_toggle.configure(fg=ORANGE, bg=PANEL)
         if self._draft:
             self._do_recommend()
 
@@ -604,8 +685,7 @@ class DraftApp(ctk.CTk):
         if self._my_role_only.get():
             self._role_toggle.configure(fg=DARK, bg=ORANGE)
         else:
-            self._role_toggle.configure(fg=DIM, bg=CARD)
-
+            self._role_toggle.configure(fg=ORANGE, bg=PANEL)
         if self._draft:
             self._do_recommend()
 
@@ -632,7 +712,7 @@ class DraftApp(ctk.CTk):
         threading.Thread(target=run, daemon=True).start()
 
     def _refresh_draft(self, draft):
-
+        # map actual side → UI label dicts
         blue_picks = self._blue_pick_labels
         red_picks  = self._red_pick_labels
         blue_bans  = self._blue_ban_lbls
@@ -661,7 +741,7 @@ class DraftApp(ctk.CTk):
         self._red_bar.set_value( max(0, min(1, t2/100)), f"{t2:.1f}")
 
     def _show_recs(self, df):
-
+        # clear old rows
         for widget in self._rec_inner.winfo_children():
             widget.destroy()
 
@@ -677,7 +757,7 @@ class DraftApp(ctk.CTk):
             role     = row["Role"].upper()
             strength = f"{row['Strength']:>+.2f}"
 
-
+            # shrink font for long champion names
             font_size = 11 if len(champ) <= 12 else 9
 
             r = tk.Frame(self._rec_inner, bg=PANEL)
